@@ -1,0 +1,78 @@
+# Watermark detection server deployment on OpenShift.
+# CPU only — no GPU required.
+#
+# The --key and --tokenizer must match the vLLM generation server's config.
+#
+# Usage:
+#   oc apply -f watermark-detector-deployment.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: watermark-detector
+  labels:
+    app: watermark-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: watermark-detector
+  template:
+    metadata:
+      labels:
+        app: watermark-detector
+    spec:
+      containers:
+        - name: detector
+          image: vllm/vllm-openai:v0.32.0
+          command: ["python3"]
+          args:
+            - "/vllm-workspace/examples/basic/online_serving/watermark_detection_server.py"
+            - "--tokenizer"
+            - "Qwen/Qwen2.5-0.5B-Instruct"
+            - "--key"
+            - "98765"
+            - "--p-value-threshold"
+            - "0.01"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8001"
+          ports:
+            - containerPort: 8001
+              name: http
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          env:
+            - name: HOME
+              value: /tmp/home
+            - name: HF_HOME
+              value: /tmp/hf_home
+            - name: XDG_CACHE_HOME
+              value: /tmp/cache
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: watermark-detector
+  labels:
+    app: watermark-detector
+spec:
+  selector:
+    app: watermark-detector
+  ports:
+    - port: 8001
+      targetPort: 8001
+      name: http

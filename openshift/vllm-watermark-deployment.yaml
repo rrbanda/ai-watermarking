@@ -1,0 +1,99 @@
+# vLLM serving deployment with watermarking enabled on OpenShift.
+#
+# Prerequisites:
+#   - NVIDIA GPU Operator and Node Feature Discovery installed
+#   - At least one GPU node available
+#
+# Usage:
+#   oc new-project watermark-test
+#   oc apply -f vllm-watermark-deployment.yaml
+#
+# Customize:
+#   - Replace "Qwen/Qwen2.5-0.5B-Instruct" with your model
+#   - Replace the key value in --watermark-config with your secret key
+#   - Adjust --max-model-len for your GPU memory and model size
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-watermark
+  labels:
+    app: vllm-watermark
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-watermark
+  template:
+    metadata:
+      labels:
+        app: vllm-watermark
+    spec:
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.32.0
+          command: ["vllm", "serve"]
+          args:
+            - "Qwen/Qwen2.5-0.5B-Instruct"
+            - "--watermark-config"
+            - '{"algorithm":"gumbel","key":98765}'
+            - "--max-model-len"
+            - "2048"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+            requests:
+              nvidia.com/gpu: "1"
+              cpu: "4"
+              memory: "16Gi"
+          env:
+            - name: HOME
+              value: /tmp/home
+            - name: HF_HOME
+              value: /tmp/hf_home
+            - name: TRANSFORMERS_CACHE
+              value: /tmp/hf_home
+            - name: XDG_CACHE_HOME
+              value: /tmp/cache
+            - name: FLASHINFER_WORKSPACE_DIR
+              value: /tmp/flashinfer
+            - name: TRITON_CACHE_DIR
+              value: /tmp/triton
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 20Gi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-watermark
+  labels:
+    app: vllm-watermark
+spec:
+  selector:
+    app: vllm-watermark
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
