@@ -1,0 +1,18 @@
+# PVC for model weights and tokenizer files.
+# Both the vLLM server and the detector mount this as ReadOnlyMany.
+#
+# Adjust storage size for larger models.
+# Qwen2.5-0.5B-Instruct is ~1 GB.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: watermark-model
+  labels:
+    app: vllm-watermark
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

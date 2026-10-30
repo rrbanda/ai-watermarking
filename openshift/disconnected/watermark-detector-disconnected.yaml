@@ -1,0 +1,92 @@
+# Watermark detection server for disconnected environments.
+# Reads the tokenizer from the same PVC as the vLLM server (no internet required).
+# CPU only — no GPU needed.
+#
+# Prerequisites:
+#   - Container image mirrored to your internal registry
+#   - Model files (including tokenizer) in the watermark-model PVC
+#   - watermark-key Secret created
+#
+# Replace <REGISTRY> with your internal registry URL.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: watermark-detector
+  labels:
+    app: watermark-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: watermark-detector
+  template:
+    metadata:
+      labels:
+        app: watermark-detector
+    spec:
+      containers:
+        - name: detector
+          image: <REGISTRY>/vllm-openai:v0.32.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec python3 /vllm-workspace/examples/basic/online_serving/watermark_detection_server.py \
+                --tokenizer /mnt/models/Qwen2.5-0.5B-Instruct \
+                --key ${WATERMARK_KEY} \
+                --p-value-threshold 0.01 \
+                --host 0.0.0.0 \
+                --port 8001
+          ports:
+            - containerPort: 8001
+              name: http
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          env:
+            - name: WATERMARK_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: watermark-key
+                  key: key
+            - name: HOME
+              value: /tmp/home
+            - name: HF_HOME
+              value: /tmp/hf_home
+            - name: XDG_CACHE_HOME
+              value: /tmp/cache
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: TRANSFORMERS_OFFLINE
+              value: "1"
+          volumeMounts:
+            - name: model
+              mountPath: /mnt/models
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: model
+          persistentVolumeClaim:
+            claimName: watermark-model
+        - name: tmp
+          emptyDir:
+            sizeLimit: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: watermark-detector
+  labels:
+    app: watermark-detector
+spec:
+  selector:
+    app: watermark-detector
+  ports:
+    - port: 8001
+      targetPort: 8001
+      name: http

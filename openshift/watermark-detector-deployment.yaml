@@ -1,9 +1,11 @@
 # Watermark detection server deployment on OpenShift.
 # CPU only — no GPU required.
 #
-# The --key and --tokenizer must match the vLLM generation server's config.
+# The key and tokenizer must match the vLLM generation server's config.
+# The key is read from the same watermark-key Secret.
 #
 # Usage:
+#   oc apply -f watermark-secret.yaml       # if not already created
 #   oc apply -f watermark-detector-deployment.yaml
 ---
 apiVersion: apps/v1
@@ -25,19 +27,15 @@ spec:
       containers:
         - name: detector
           image: vllm/vllm-openai:v0.32.0
-          command: ["python3"]
+          command: ["/bin/sh", "-c"]
           args:
-            - "/vllm-workspace/examples/basic/online_serving/watermark_detection_server.py"
-            - "--tokenizer"
-            - "Qwen/Qwen2.5-0.5B-Instruct"
-            - "--key"
-            - "98765"
-            - "--p-value-threshold"
-            - "0.01"
-            - "--host"
-            - "0.0.0.0"
-            - "--port"
-            - "8001"
+            - |
+              exec python3 /vllm-workspace/examples/basic/online_serving/watermark_detection_server.py \
+                --tokenizer Qwen/Qwen2.5-0.5B-Instruct \
+                --key ${WATERMARK_KEY} \
+                --p-value-threshold 0.01 \
+                --host 0.0.0.0 \
+                --port 8001
           ports:
             - containerPort: 8001
               name: http
@@ -49,6 +47,11 @@ spec:
               cpu: "2"
               memory: "4Gi"
           env:
+            - name: WATERMARK_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: watermark-key
+                  key: key
             - name: HOME
               value: /tmp/home
             - name: HF_HOME

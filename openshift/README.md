@@ -10,6 +10,9 @@ These manifests were tested on OpenShift 4.20 with RHOAI 3.5 and vLLM v0.32.0 on
 # Create a project
 oc new-project watermark-test
 
+# Create the Secret that holds the watermark key (shared by both services)
+oc apply -f watermark-secret.yaml
+
 # Deploy the vLLM server with watermarking (requires a GPU node)
 oc apply -f vllm-watermark-deployment.yaml
 
@@ -19,6 +22,29 @@ oc wait --for=condition=available deployment/vllm-watermark --timeout=600s
 # Deploy the detection server (CPU only, no GPU)
 oc apply -f watermark-detector-deployment.yaml
 oc wait --for=condition=available deployment/watermark-detector --timeout=300s
+```
+
+## Key management
+
+The watermark key is stored in an OpenShift Secret (`watermark-key`) and injected as `WATERMARK_KEY` into both the generation and detection containers. Both deployments reference the same Secret, so the key is always in sync.
+
+**Option A — apply the included manifest** (good for testing):
+
+```bash
+oc apply -f watermark-secret.yaml
+```
+
+**Option B — create directly from the command line** (avoid checking the key into source control):
+
+```bash
+oc create secret generic watermark-key --from-literal=key=98765
+```
+
+To rotate the key, update the Secret and restart both deployments:
+
+```bash
+oc create secret generic watermark-key --from-literal=key=<new-key> --dry-run=client -o yaml | oc apply -f -
+oc rollout restart deployment/vllm-watermark deployment/watermark-detector
 ```
 
 ## Test end-to-end
@@ -53,8 +79,7 @@ The vLLM deployment uses `nodeSelector: nvidia.com/gpu.present: "true"` to land 
 ## Customization
 
 - Replace `Qwen/Qwen2.5-0.5B-Instruct` with your model in **both** deployments
-- Replace the key (`98765`) with your secret key — **must be the same in both**
-- For production, store the key in an OpenShift Secret and reference via `env.valueFrom.secretKeyRef`
+- To change the key, update the `watermark-key` Secret — **not** the deployment YAMLs
 - Adjust `--max-model-len` based on your GPU memory and model size
 
 ## Cleanup

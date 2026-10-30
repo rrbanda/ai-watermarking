@@ -22,6 +22,7 @@ See [`openshift/`](openshift/) for ready-to-apply manifests. The container image
 
 ```bash
 oc new-project watermark-test
+oc apply -f openshift/watermark-secret.yaml
 oc apply -f openshift/vllm-watermark-deployment.yaml
 oc apply -f openshift/watermark-detector-deployment.yaml
 ```
@@ -51,6 +52,7 @@ The detection servers in recipe 3 are minimal examples, not production endpoints
 ```bash
 # 1. Deploy vLLM with watermarking and the detector
 oc new-project watermark-test
+oc apply -f openshift/watermark-secret.yaml
 oc apply -f openshift/vllm-watermark-deployment.yaml
 oc apply -f openshift/watermark-detector-deployment.yaml
 oc wait --for=condition=available deployment/vllm-watermark --timeout=600s

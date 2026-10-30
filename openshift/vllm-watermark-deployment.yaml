@@ -3,14 +3,15 @@
 # Prerequisites:
 #   - NVIDIA GPU Operator and Node Feature Discovery installed
 #   - At least one GPU node available
+#   - The watermark-key Secret created (see watermark-secret.yaml)
 #
 # Usage:
 #   oc new-project watermark-test
+#   oc apply -f watermark-secret.yaml
 #   oc apply -f vllm-watermark-deployment.yaml
 #
 # Customize:
 #   - Replace "Qwen/Qwen2.5-0.5B-Instruct" with your model
-#   - Replace the key value in --watermark-config with your secret key
 #   - Adjust --max-model-len for your GPU memory and model size
 ---
 apiVersion: apps/v1
@@ -32,15 +33,13 @@ spec:
       containers:
         - name: vllm
           image: vllm/vllm-openai:v0.32.0
-          command: ["vllm", "serve"]
+          command: ["/bin/sh", "-c"]
           args:
-            - "Qwen/Qwen2.5-0.5B-Instruct"
-            - "--watermark-config"
-            - '{"algorithm":"gumbel","key":98765}'
-            - "--max-model-len"
-            - "2048"
-            - "--port"
-            - "8000"
+            - |
+              exec vllm serve Qwen/Qwen2.5-0.5B-Instruct \
+                --watermark-config "{\"algorithm\":\"gumbel\",\"key\":${WATERMARK_KEY}}" \
+                --max-model-len 2048 \
+                --port 8000
           ports:
             - containerPort: 8000
               name: http
@@ -52,6 +51,11 @@ spec:
               cpu: "4"
               memory: "16Gi"
           env:
+            - name: WATERMARK_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: watermark-key
+                  key: key
             - name: HOME
               value: /tmp/home
             - name: HF_HOME

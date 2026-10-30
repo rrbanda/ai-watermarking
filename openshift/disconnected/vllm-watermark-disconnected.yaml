@@ -1,0 +1,107 @@
+# vLLM serving deployment for disconnected environments.
+# Model files are read from the watermark-model PVC (no internet required).
+#
+# Prerequisites:
+#   - Container image mirrored to your internal registry
+#   - Model files copied to the watermark-model PVC (see README.md)
+#   - watermark-key Secret created
+#
+# Replace <REGISTRY> with your internal registry URL.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-watermark
+  labels:
+    app: vllm-watermark
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-watermark
+  template:
+    metadata:
+      labels:
+        app: vllm-watermark
+    spec:
+      containers:
+        - name: vllm
+          image: <REGISTRY>/vllm-openai:v0.32.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec vllm serve /mnt/models/Qwen2.5-0.5B-Instruct \
+                --watermark-config "{\"algorithm\":\"gumbel\",\"key\":${WATERMARK_KEY}}" \
+                --max-model-len 2048 \
+                --port 8000
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+            requests:
+              nvidia.com/gpu: "1"
+              cpu: "4"
+              memory: "16Gi"
+          env:
+            - name: WATERMARK_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: watermark-key
+                  key: key
+            - name: HOME
+              value: /tmp/home
+            - name: HF_HOME
+              value: /tmp/hf_home
+            - name: TRANSFORMERS_CACHE
+              value: /tmp/hf_home
+            - name: XDG_CACHE_HOME
+              value: /tmp/cache
+            - name: FLASHINFER_WORKSPACE_DIR
+              value: /tmp/flashinfer
+            - name: TRITON_CACHE_DIR
+              value: /tmp/triton
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: TRANSFORMERS_OFFLINE
+              value: "1"
+          volumeMounts:
+            - name: model
+              mountPath: /mnt/models
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model
+          persistentVolumeClaim:
+            claimName: watermark-model
+        - name: tmp
+          emptyDir:
+            sizeLimit: 20Gi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-watermark
+  labels:
+    app: vllm-watermark
+spec:
+  selector:
+    app: vllm-watermark
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
